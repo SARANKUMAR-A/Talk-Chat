@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: django-backend
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn yourprojectname.wsgi
+    plan: free
+    region: oregon
+    branch: master
+    autoDeploy: true
