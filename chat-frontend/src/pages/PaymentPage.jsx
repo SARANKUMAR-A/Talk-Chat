@@ -1,108 +1,264 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
+import {
+  Box,
+  Typography,
+  Button,
+  Paper,
+  Stack,
+  useTheme,
+  Tooltip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+} from "@mui/material";
+import CreditCardIcon from "@mui/icons-material/CreditCard";
+import AccountBalanceIcon from "@mui/icons-material/AccountBalance";
+import AccountBalanceWalletIcon from "@mui/icons-material/AccountBalanceWallet";
+import PhoneAndroidIcon from "@mui/icons-material/PhoneAndroid";
+import PaymentIcon from "@mui/icons-material/Payment";
+import CancelIcon from "@mui/icons-material/Cancel";
+import StylishPopup from "../components/StylishPopup";
 
-const PaymentPage = ({ isDarkMode, setSubscribePage }) => {
+const paymentMethods = [
+  { label: "UPI", icon: <PhoneAndroidIcon /> },
+  { label: "Credit Card", icon: <CreditCardIcon /> },
+  { label: "Debit Card", icon: <CreditCardIcon /> },
+  { label: "Net Banking", icon: <AccountBalanceIcon /> },
+  { label: "Wallet", icon: <AccountBalanceWalletIcon /> },
+  { label: "EMI", icon: <PaymentIcon /> },
+];
+
+const methodMap = {
+  UPI: ["upi"],
+  "Credit Card": ["card"],
+  "Debit Card": ["card"],
+  "Net Banking": ["netbanking"],
+  Wallet: ["wallet"],
+  EMI: ["emi"],
+};
+
+const Payment = ({ isDarkMode, setSubscribePage }) => {
+  const theme = useTheme();
   const [selectedMethod, setSelectedMethod] = useState(null);
 
-  const paymentMethods = [
-    "UPI",
-    "Credit Card",
-    "Debit Card",
-    "Net Banking",
-    "Wallet",
-    "EMI",
-  ];
+  // Popup state
+  const [popupOpen, setPopupOpen] = useState(false);
+  const [popupTitle, setPopupTitle] = useState("");
+  const [popupMessage, setPopupMessage] = useState("");
+  const [popupConfirmCallback, setPopupConfirmCallback] = useState(null);
 
-  const handlePayment = (method) => {
-    setSelectedMethod(method);
-    alert(`Proceeding with payment method: ${method}`);
-    // You can extend this to integrate payment API here.
+  useEffect(() => {
+    const script = document.createElement("script");
+    script.src = "https://checkout.razorpay.com/v1/checkout.js";
+    script.async = true;
+    document.body.appendChild(script);
+    return () => {
+      document.body.removeChild(script);
+    };
+  }, []);
+
+  const openPopup = (title, message, onConfirm = null) => {
+    setPopupTitle(title);
+    setPopupMessage(message);
+    setPopupConfirmCallback(() => onConfirm);
+    setPopupOpen(true);
   };
 
-  const backgroundStyle = isDarkMode
-    ? "linear-gradient(to bottom right, #1e293b, #334155)"
-    : "linear-gradient(to bottom right, #dbeafe, #c7d2fe)";
-
-  const containerStyle = {
-    minHeight: "100vh",
-    background: backgroundStyle,
-    display: "flex",
-    justifyContent: "center",
-    alignItems: "center",
-    flexDirection: "column",
-    padding: 20,
-    color: isDarkMode ? "#e0e0e0" : "#000",
-    transition: "all 0.3s ease",
+  const closePopup = () => {
+    setPopupOpen(false);
+    setPopupConfirmCallback(null);
   };
 
-  const cardStyle = {
-    marginTop: 30,
-    backgroundColor: isDarkMode ? "#334155" : "#fff",
-    padding: 20,
-    borderRadius: 10,
-    boxShadow: isDarkMode
-      ? "0 0 10px rgba(100, 100, 100, 0.5)"
-      : "0 0 10px rgba(0,0,0,0.1)",
-    width: 300,
-    textAlign: "center",
-    color: isDarkMode ? "#e0e0e0" : "#000",
+  const showPopup = (message) => {
+    setPopupMessage(message);
+    setPopupOpen(true);
   };
 
-  const buttonStyle = (method) => ({
-    margin: "10px 0",
-    padding: "10px 15px",
-    width: "100%",
-    cursor: "pointer",
-    backgroundColor:
-      selectedMethod === method
-        ? "#1976d2"
-        : isDarkMode
-        ? "#475569"
-        : "#e0e0e0",
-    color: selectedMethod === method ? "#fff" : isDarkMode ? "#e0e0e0" : "#000",
-    border: "none",
-    borderRadius: 4,
-    transition: "all 0.3s ease",
-  });
+  const handlePayment = async () => {
+    if (!selectedMethod) {
+      openPopup("Please select a payment method first.");
+      return;
+    }
 
-  const cancelButtonStyle = {
-    marginTop: 20,
-    padding: "8px 12px",
-    backgroundColor: isDarkMode ? "#64748b" : "#ccc",
-    border: "none",
-    borderRadius: 6,
-    cursor: "pointer",
-    color: isDarkMode ? "#e0e0e0" : "#000",
-    transition: "all 0.3s ease",
-  };
+    try {
+      // Create order via backend
+      const res = await fetch("/create-subscription/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ amount: 19900 }), // ₹199.00 in paise
+      });
 
-  const headingStyle = {
-    color: isDarkMode ? "#e0e0e0" : "#000",
+      if (!res.ok) {
+        openPopup("Failed to create order, please try again.");
+        return;
+      }
+
+      const data = await res.json();
+
+      const options = {
+        key: data.razorpay_key,
+        amount: 19900,
+        currency: "INR",
+        name: "SmartChat AI",
+        description: `SmartChat Premium - ${selectedMethod}`,
+        order_id: data.order_id,
+        handler: (response) => {
+          openPopup("Payment successful!");
+          setSubscribePage(false);
+        },
+        theme: {
+          color: theme.palette.primary.main,
+          mode: isDarkMode ? "dark" : "light",
+        },
+        modal: {
+          ondismiss: () => openPopup("Payment Cancelled."),
+        },
+        prefill: {
+          name: "Sarankumar",
+          email: "sarankumar.anbalagan.18@gmail.com",
+          contact: "9025648431",
+        },
+        method: {
+          netbanking: false,
+          card: false,
+          upi: false,
+          wallet: false,
+          emi: false,
+        },
+      };
+
+      // Enable only selected payment method
+      methodMap[selectedMethod].forEach((m) => {
+        options.method[m] = true;
+      });
+
+      const razorpay = new window.Razorpay(options);
+      razorpay.open();
+    } catch (error) {
+      openPopup("Error", "An unexpected error occurred. Please try again.");
+
+      console.error(error);
+    }
   };
 
   return (
-    <div style={containerStyle}>
-      <h2 style={headingStyle}>Subscribe to SmartChat Premium</h2>
-      <div style={cardStyle}>
-        <h3 style={headingStyle}>Select Payment Method</h3>
-        {paymentMethods.map((method) => (
-          <button
-            key={method}
-            style={buttonStyle(method)}
-            onClick={() => handlePayment(method)}
-          >
-            {method}
-          </button>
-        ))}
-        <button
-          style={cancelButtonStyle}
-          onClick={() => setSubscribePage(false)}
-          aria-label="Cancel subscription"
+    <>
+      <Box
+        sx={{
+          minHeight: "100vh",
+          bgcolor: "background.default",
+          color: "text.primary",
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          p: 3,
+        }}
+      >
+        <Paper
+          elevation={10}
+          sx={{
+            maxWidth: 400,
+            width: "100%",
+            p: 4,
+            borderRadius: 3,
+            boxShadow: theme.shadows[8],
+            bgcolor: "background.paper",
+          }}
         >
-          Cancel
-        </button>
-      </div>
-    </div>
+          <Typography variant="h5" fontWeight="bold" mb={3} textAlign="center">
+            Subscribe to SmartChat Premium
+          </Typography>
+
+          <Typography
+            variant="subtitle1"
+            mb={2}
+            textAlign="center"
+            color="text.secondary"
+          >
+            Select your preferred payment method
+          </Typography>
+
+          <Stack spacing={2} mb={3}>
+            {paymentMethods.map(({ label, icon }) => (
+              <Tooltip key={label} title={label}>
+                <Button
+                  variant={selectedMethod === label ? "contained" : "outlined"}
+                  startIcon={icon}
+                  onClick={() => setSelectedMethod(label)}
+                  sx={{
+                    justifyContent: "flex-start",
+                    textTransform: "none",
+                    fontWeight: selectedMethod === label ? "bold" : "normal",
+                    bgcolor:
+                      selectedMethod === label
+                        ? theme.palette.primary.main
+                        : "transparent",
+                    color:
+                      selectedMethod === label
+                        ? "#fff"
+                        : theme.palette.text.primary,
+                    borderColor:
+                      selectedMethod === label
+                        ? theme.palette.primary.main
+                        : undefined,
+                    "&:hover": {
+                      bgcolor:
+                        selectedMethod === label
+                          ? theme.palette.primary.dark
+                          : theme.palette.action.hover,
+                    },
+                  }}
+                >
+                  {label}
+                </Button>
+              </Tooltip>
+            ))}
+          </Stack>
+
+          <Stack direction="row" spacing={2} justifyContent="center">
+            <Button
+              variant="contained"
+              size="large"
+              onClick={handlePayment}
+              disabled={!selectedMethod}
+              sx={{ flex: 1 }}
+            >
+              Pay ₹199
+            </Button>
+
+            <Button
+              variant="outlined"
+              size="large"
+              startIcon={<CancelIcon />}
+              onClick={() => setSubscribePage(false)}
+              sx={{
+                flex: 1,
+                borderColor: theme.palette.text.secondary,
+                color: theme.palette.text.secondary,
+                "&:hover": {
+                  bgcolor: theme.palette.action.hover,
+                  borderColor: theme.palette.primary.main,
+                  color: theme.palette.primary.main,
+                },
+              }}
+            >
+              Cancel
+            </Button>
+          </Stack>
+        </Paper>
+      </Box>
+
+      {/* Popup Modal */}
+      <StylishPopup
+        open={popupOpen}
+        onClose={closePopup}
+        title={popupTitle}
+        message={popupMessage}
+        onConfirm={popupConfirmCallback}
+      />
+    </>
   );
 };
 
-export default PaymentPage;
+export default Payment;

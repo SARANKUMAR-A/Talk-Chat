@@ -12,7 +12,17 @@ from dotenv import load_dotenv
 load_dotenv()
 import ollama
 from datetime import datetime
+import razorpay
+from django.views.decorators.csrf import csrf_exempt
+from django.conf import settings
+import json
+import secrets
 
+
+razorpay_client = razorpay.Client(
+    auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET)
+)
+print("Razorpay client initialized", razorpay_client)
 
 def get_or_create_session(user):
     session, _ = ChatSession.objects.get_or_create(user=user)
@@ -178,3 +188,41 @@ class GrammarCheckView(APIView):
 
 
         return Response({"original": message, "corrected": corrected})
+
+
+class PaymentView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        try:
+            data = json.loads(request.body)
+            amount = data.get("amount", 19900)  # Default to ₹199.00 in paise
+            payment_method = data.get("payment_method")
+
+            if not amount:
+                return JsonResponse({"error": "Amount is required"}, status=400)
+
+            receipt_id = f"rcpt_{secrets.token_hex(4)}"  # Generate a unique receipt id
+
+            order_data = {
+                "amount": amount,
+                "currency": "INR",
+                "receipt": receipt_id,
+                "payment_capture": 1,
+                "notes": {
+                    "payment_method_requested": payment_method or "any"
+                },
+            }
+
+            order = razorpay_client.order.create(data=order_data)
+
+            response = {
+                "razorpay_key": settings.RAZORPAY_KEY_ID,
+                "order_id": order["id"],
+                "amount": order["amount"],
+                "currency": order["currency"],
+            }
+            return JsonResponse(response)
+        except Exception as e:
+            print(f"Error creating subscription: {e}")
+            return JsonResponse({"error": str(e)}, status=500)

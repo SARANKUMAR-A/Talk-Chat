@@ -11,6 +11,8 @@ import {
   CssBaseline,
   ThemeProvider,
   createTheme,
+  Button,
+  Modal,
 } from "@mui/material";
 import SendIcon from "@mui/icons-material/Send";
 import MicIcon from "@mui/icons-material/Mic";
@@ -20,10 +22,49 @@ import SpellcheckIcon from "@mui/icons-material/Spellcheck";
 import PersonIcon from "@mui/icons-material/Person";
 import SmartToyIcon from "@mui/icons-material/SmartToy";
 import HomeIcon from "@mui/icons-material/Home";
-import PauseIcon from '@mui/icons-material/Pause';
+import PauseIcon from "@mui/icons-material/Pause";
 import { ThreeDot } from "react-loading-indicators";
 import { DotLoader, ScaleLoader } from "react-spinners";
 import PaymentPage from "./pages/PaymentPage";
+import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
+import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
+
+// StylishPopup Component for token expiry alert
+const StylishPopup = ({ open, onClose, onLogout }) => {
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      aria-labelledby="popup-title"
+      aria-describedby="popup-description"
+    >
+      <Box
+        sx={{
+          position: "absolute",
+          top: "50%",
+          left: "50%",
+          transform: "translate(-50%, -50%)",
+          bgcolor: "background.paper",
+          boxShadow: 24,
+          p: 4,
+          borderRadius: 2,
+          maxWidth: 400,
+          textAlign: "center",
+        }}
+      >
+        <Typography id="popup-title" variant="h6" gutterBottom>
+          Session Expired
+        </Typography>
+        <Typography id="popup-description" sx={{ mb: 3 }}>
+          Your session has expired. Please log in again to continue.
+        </Typography>
+        <Button variant="contained" color="primary" onClick={onLogout}>
+          Logout
+        </Button>
+      </Box>
+    </Modal>
+  );
+};
 
 const ChatApp = () => {
   const [messages, setMessages] = useState([]);
@@ -34,6 +75,11 @@ const ChatApp = () => {
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [speakingIndex, setSpeakingIndex] = useState(null);
   const [subscribePage, setSubscribePage] = useState(false);
+  const [tokenExpired, setTokenExpired] = useState(false);
+  const chatContainerRef = useRef(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const recognitionRef = useRef(null);
+
   const chatEndRef = useRef(null);
   const synthRef = useRef(window.speechSynthesis);
   const utteranceRef = useRef(null);
@@ -67,6 +113,15 @@ const ChatApp = () => {
     };
   };
 
+  // Check response status for token expiry
+  const checkTokenExpiry = (response) => {
+    if (response.status === 401) {
+      setTokenExpired(true);
+      return true;
+    }
+    return false;
+  };
+
   // Load theme mode from localStorage on mount
   useEffect(() => {
     const saved = localStorage.getItem("darkMode");
@@ -81,7 +136,10 @@ const ChatApp = () => {
   // Load chat history on mount
   useEffect(() => {
     fetch("/chat/history/", { headers: getAuthHeaders() })
-      .then((res) => res.json())
+      .then((res) => {
+        if (checkTokenExpiry(res)) throw new Error("Token expired");
+        return res.json();
+      })
       .then((data) => {
         const formatted = [];
         data.forEach((item) => {
@@ -110,7 +168,10 @@ const ChatApp = () => {
   const handleSend = async () => {
     if (!input.trim()) return;
     const tempId = Date.now();
-    const newMessages = [...messages, { is_user: true, text: input, id: tempId }];
+    const newMessages = [
+      ...messages,
+      { is_user: true, text: input, id: tempId },
+    ];
     setMessages(newMessages);
     setInput("");
     setIsAILoading(true);
@@ -121,6 +182,7 @@ const ChatApp = () => {
         headers: getAuthHeaders(),
         body: JSON.stringify({ text: input }),
       });
+      if (checkTokenExpiry(res)) throw new Error("Token expired");
       if (!res.ok) throw new Error("Failed to send message");
       const data = await res.json();
 
@@ -155,39 +217,56 @@ const ChatApp = () => {
     }
   };
 
-  // Voice recognition
-  const startVoiceRecognition = () => {
-    setMicLoading(true);
-    if (!("webkitSpeechRecognition" in window)) {
-      alert("Voice recognition not supported in this browser.");
-      setMicLoading(false);
-      return;
-    }
+  const toggleVoiceRecognition = () => {
+    if (!isRecording) {
+      const SpeechRecognition =
+        window.SpeechRecognition || window.webkitSpeechRecognition;
 
-    try {
-      const recognition = new window.webkitSpeechRecognition();
-      recognition.lang = "en-US";
-      recognition.interimResults = false;
-      recognition.maxAlternatives = 1;
+      if (!SpeechRecognition) {
+        alert("Speech recognition not supported in this browser.");
+        return;
+      }
+
+      const recognition = new SpeechRecognition();
+      recognitionRef.current = recognition;
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = "en-IN"; // or your preferred language
+      recognition.maxAlternatives = 3;
+
+      let finalTranscript = "";
 
       recognition.onresult = (event) => {
-        const transcript = event.results[0][0].transcript;
-        setInput(transcript);
+        let interimTranscript = "";
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          const transcript = event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            finalTranscript += transcript;
+          } else {
+            interimTranscript += transcript;
+          }
+        }
+        setInput(finalTranscript + interimTranscript);
+      };
+
+      recognition.onend = () => {
+        if (isRecording) {
+          recognition.start(); // auto-restart for continuous speech
+        }
       };
 
       recognition.onerror = (event) => {
         console.error("Speech recognition error:", event.error);
-        setMicLoading(false);
-      };
-
-      recognition.onend = () => {
-        setMicLoading(false);
+        if (event.error !== "aborted") {
+          recognition.stop();
+        }
       };
 
       recognition.start();
-    } catch (error) {
-      console.error("Voice recognition failed:", error);
-      setMicLoading(false);
+      setIsRecording(true);
+    } else {
+      recognitionRef.current?.stop();
+      setIsRecording(false);
     }
   };
 
@@ -202,6 +281,7 @@ const ChatApp = () => {
         headers: getAuthHeaders(),
         body: JSON.stringify({ message_id }),
       });
+      if (checkTokenExpiry(res)) throw new Error("Token expired");
       if (!res.ok) throw new Error("Grammar check failed");
       const data = await res.json();
 
@@ -219,10 +299,12 @@ const ChatApp = () => {
 
   // Logout handler
   const handleLogout = () => {
-    fetch("/logout", { method: "POST", headers: getAuthHeaders() }).finally(() => {
-      localStorage.clear();
-      navigate("/login");
-    });
+    fetch("/logout", { method: "POST", headers: getAuthHeaders() }).finally(
+      () => {
+        localStorage.clear();
+        navigate("/login");
+      }
+    );
   };
 
   // Subscription page toggle
@@ -233,6 +315,17 @@ const ChatApp = () => {
   const handleHome = () => {
     setSubscribePage(false);
     navigate("/");
+  };
+
+  const scrollToTop = () => {
+    chatContainerRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const scrollToBottom = () => {
+    chatContainerRef.current?.scrollTo({
+      top: chatContainerRef.current.scrollHeight,
+      behavior: "smooth",
+    });
   };
 
   return (
@@ -284,9 +377,12 @@ const ChatApp = () => {
                 <HomeIcon fontSize="large" />
               </IconButton>
             )}
-            
+
             {/* Mode Toggle */}
-            <IconButton color="inherit" onClick={() => setIsDarkMode(!isDarkMode)}>
+            <IconButton
+              color="inherit"
+              onClick={() => setIsDarkMode(!isDarkMode)}
+            >
               {isDarkMode ? "🌙" : "☀️"}
             </IconButton>
 
@@ -322,6 +418,7 @@ const ChatApp = () => {
               }}
             >
               <Box
+                ref={chatContainerRef}
                 sx={{
                   flex: 1,
                   p: 2,
@@ -447,6 +544,48 @@ const ChatApp = () => {
                 )}
 
                 <div ref={chatEndRef} />
+                <Box
+                  sx={{
+                    position: "fixed",
+                    bottom: 100,
+                    right: 30,
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 1,
+                    zIndex: 1000,
+                  }}
+                >
+                  <Button
+                    variant="contained"
+                    color="primary"
+                    size="small"
+                    onClick={scrollToTop}
+                    sx={{
+                      borderRadius: "50%",
+                      minWidth: 0,
+                      width: 48,
+                      height: 48,
+                    }}
+                    title="Scroll to Top"
+                  >
+                    <ArrowUpwardIcon />
+                  </Button>
+                  <Button
+                    variant="contained"
+                    color="primary"
+                    size="small"
+                    onClick={scrollToBottom}
+                    sx={{
+                      borderRadius: "50%",
+                      minWidth: 0,
+                      width: 48,
+                      height: 48,
+                    }}
+                    title="Scroll to Bottom"
+                  >
+                    <ArrowDownwardIcon />
+                  </Button>
+                </Box>
               </Box>
 
               <Box
@@ -470,18 +609,28 @@ const ChatApp = () => {
                 />
 
                 <IconButton
-                  onClick={startVoiceRecognition}
-                  color="primary"
-                  aria-label="Start voice input"
+                  onClick={toggleVoiceRecognition}
+                  color={isRecording ? "error" : "primary"}
+                  aria-label="Toggle voice input"
+                  title={isRecording ? "Stop Recording" : "Start Recording"}
                 >
                   {micLoading ? (
-                    <ScaleLoader color="#1976d2" height={20} width={4} radius={2} />
+                    <ScaleLoader
+                      color="#1976d2"
+                      height={20}
+                      width={4}
+                      radius={2}
+                    />
                   ) : (
                     <MicIcon />
                   )}
                 </IconButton>
 
-                <IconButton onClick={handleSend} color="primary" aria-label="Send message">
+                <IconButton
+                  onClick={handleSend}
+                  color="primary"
+                  aria-label="Send message"
+                >
                   <SendIcon />
                 </IconButton>
 
@@ -499,6 +648,13 @@ const ChatApp = () => {
             <PaymentPage setSubscribePage={setSubscribePage} />
           )}
         </Box>
+
+        {/* Token Expired Popup */}
+        <StylishPopup
+          open={tokenExpired}
+          onClose={() => {}}
+          onLogout={handleLogout}
+        />
       </Box>
     </ThemeProvider>
   );

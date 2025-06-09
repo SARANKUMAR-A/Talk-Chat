@@ -109,6 +109,9 @@ SIMPLE_JWT = {
     'TOKEN_BLACKLIST_ENABLED': True,
 }
 
+RAZORPAY_KEY_ID = "rzp_test_OEGPANLnORZ0BC"
+RAZORPAY_KEY_SECRET = "pHe2sxLvrCnd68VthiNxKURG"
+
 
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
