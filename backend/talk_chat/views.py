@@ -186,7 +186,6 @@ class GrammarCheckView(APIView):
         corrected = response['message']['content'].strip()
         print(f"Original: {message}\nCorrected: {corrected}")
 
-
         return Response({"original": message, "corrected": corrected})
 
 

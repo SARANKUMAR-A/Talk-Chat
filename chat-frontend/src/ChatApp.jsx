@@ -175,6 +175,7 @@ const ChatApp = () => {
     setMessages(newMessages);
     setInput("");
     setIsAILoading(true);
+    setIsRecording(false);
 
     try {
       const res = await fetch("/chat/send/", {
