@@ -3,7 +3,7 @@ services:
     name: django-backend
     env: python
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn home.wsgi
+    startCommand: gunicorn home.wsgi:application --bind 0.0.0.0:8000
     plan: free
     region: oregon
     branch: master
